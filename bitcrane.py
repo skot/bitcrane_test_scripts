@@ -2,24 +2,30 @@ import serial
 import time
 
 PAGE_I2C = 0x05
-PAGE_GPIO = 0x06
-PAGE_ADC = 0x07
-PAGE_FAN = 0x09
+I2C_COMMAND_WRITE = 0x20
+I2C_COMMAND_READ = 0x30
+I2C_COMMAND_READWRITE = 0x40
 
+PAGE_GPIO = 0x06
 GPIO_HIGH = 0x01
 GPIO_LOW = 0x00
+GPIO_HB0_RST = 0x00
+GPIO_HB0_PLUG = 0x01
+GPIO_HB1_RST = 0x10
+GPIO_HB1_PLUG = 0x11
+GPIO_HB2_RST = 0x20
+GPIO_HB2_PLUG = 0x21
 
-GPIO_PWR_EN = 0x00
-GPIO_5V_EN = 0x01
-GPIO_ASIC_RST = 0x02
-GPIO_ASIC_TRIP = 0x03
+PAGE_FAN = 0x09
+FAN1_SPEED_CMD = 0x11
+FAN1_TACH_CMD = 0x21
+FAN2_SPEED_CMD = 0x12
+FAN2_TACH_CMD = 0x22
+FAN3_SPEED_CMD = 0x13
+FAN3_TACH_CMD = 0x23
+FAN4_SPEED_CMD = 0x14
+FAN4_TACH_CMD = 0x24
 
-ADC_DOMAIN1 = 0x50
-ADC_DOMAIN2 = 0x51
-ADC_DOMAIN3 = 0x52
-
-FAN_SPEED_CMD = 0x10
-FAN_TACH_CMD = 0x20
 
 def prettyHex(data):
     return ' '.join(f'{byte:02X}' for byte in data)
@@ -46,9 +52,19 @@ def prettyHex9(data):
             result.append(f'{value:03X}')
     return ' '.join(result)
 
-def fan_set_speed(ser, id, speed_percent, debug=False):
+def fan_set_speed(ser, id, fan_num, speed_percent, debug=False):
     packet_len = 7
-    packet = bytes([packet_len, 0x00, id, 0x00, PAGE_FAN, FAN_SPEED_CMD, speed_percent])
+    if fan_num == 1:
+        fan_speed_command = FAN1_SPEED_CMD
+    elif fan_num == 2:
+        fan_speed_command = FAN2_SPEED_CMD
+    elif fan_num == 3:
+        fan_speed_command = FAN3_SPEED_CMD
+    elif fan_num == 4:
+        fan_speed_command = FAN4_SPEED_CMD
+    else:
+        raise ValueError("Invalid fan number. Must be 1-4.")
+    packet = bytes([packet_len, 0x00, id, 0x00, PAGE_FAN, fan_speed_command, speed_percent])
 
     if debug:
         print("ctrl fan tx: [%s]" % prettyHex(packet))
@@ -72,9 +88,19 @@ def fan_set_speed(ser, id, speed_percent, debug=False):
         print("No data received")
     return
 
-def get_fan_rpm(ser, id, debug=False):
+def get_fan_rpm(ser, id, fan_num, debug=False):
     packet_len = 6
-    packet = bytes([packet_len, 0x00, id, 0x00, PAGE_FAN, FAN_TACH_CMD])
+    if fan_num == 1:
+        fan_tach_command = FAN1_TACH_CMD
+    elif fan_num == 2:
+        fan_tach_command = FAN2_TACH_CMD
+    elif fan_num == 3:
+        fan_tach_command = FAN3_TACH_CMD
+    elif fan_num == 4:
+        fan_tach_command = FAN4_TACH_CMD
+    else:
+        raise ValueError("Invalid fan number. Must be 1-4.")
+    packet = bytes([packet_len, 0x00, id, 0x00, PAGE_FAN, fan_tach_command])
 
     if debug:
         print("ctrl fan rpm tx: [%s]" % prettyHex(packet))
@@ -126,6 +152,36 @@ def gpio_set(ser, id, gpio, value, debug=False):
         print("No data received")
     return
 
+def i2c_send_bytes(ser, address, register, data, debug=False):
+     packet = bytes([0x09, 0x00, 0x01, 0x00, PAGE_I2C, I2C_COMMAND_WRITE, address, register, data])
+     ser.write(packet)
+     if debug:
+        print("ctrl tx: [%s]" % prettyHex(packet))
+
+def i2c_read_bytes(ser, id, address, register, size, debug=False):
+    ser.reset_input_buffer()
+    packet = bytes([0x09, 0x00, id, 0x00, PAGE_I2C, I2C_COMMAND_READWRITE, address, register, size])
+    ser.write(packet)
+    if debug:
+        print("ctrl tx: [%s]" % prettyHex(packet))
+    data = ser.read(size+3)
+    if data:
+        bytes_read = len(data)
+        if bytes_read > 0:
+            if debug:
+                print("ctrl rx: [%s]" % prettyHex(data))
+            if data[2] != id:
+                print("Error: ID mismatch. Expected %02X, got %02X" % (id, data[2]))
+                return None
+        else:
+            print("No data received")
+            return None
+    else:
+        print("No data received")
+        return None
+
+    return data[-size:]
+
 #asic_write takes an list of u16 values and writes them as u8 bytes to the serial port
 # Data is sent/received as pairs of bytes:
 # - **First byte**: Lower 8 bits of the 9-bit word (bits 0-7)
@@ -167,3 +223,26 @@ def asic_read(ser, length, debug=False):
         data.append(value)
 
     return data
+    
+
+def reset_asic(ser, hashboard_num, debug=False):
+    if hashboard_num == 0:
+        rst_pin = GPIO_HB0_RST
+    elif hashboard_num == 1:
+        rst_pin = GPIO_HB1_RST
+    elif hashboard_num == 2:
+        rst_pin = GPIO_HB2_RST
+    else:
+        raise ValueError("Invalid hashboard number. Must be 0-2.")
+    
+    # Construct the command to reset the ASIC
+    command = bytes([0x07, 0x00, 0x00, 0x00, PAGE_GPIO, rst_pin, GPIO_LOW])
+    if debug:
+        print("reset_asic tx: [%s]" % prettyHex(command))
+    ser.write(command)
+    time.sleep(0.1)
+
+    command = bytes([0x07, 0x00, 0x00, 0x00, PAGE_GPIO, rst_pin, GPIO_HIGH])
+    if debug:
+        print("reset_asic tx: [%s]" % prettyHex(command))
+    ser.write(command)

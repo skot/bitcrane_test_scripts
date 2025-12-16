@@ -1,6 +1,19 @@
 import serial
 import TMP75
 import time
+import sys
+
+# Take command line argument for hashboard number
+if len(sys.argv) != 2:
+    print("Usage: python i2c_test.py <hashboard_num>")
+    print("  hashboard_num: Hashboard number to ping")
+    exit(1)
+
+try:
+    hashboard_num = int(sys.argv[1])
+except ValueError:
+    print("Error: hashboard_num must be a number")
+    exit(1)
 
 try:
     serial_port_ctrl = serial.Serial(
@@ -15,9 +28,9 @@ except serial.SerialException as e:
 try:
     while True:
         print("\nReading board temps...")
-        temperature = TMP75.read_temperature(serial_port_ctrl, 0)
+        temperature = TMP75.read_temperature(serial_port_ctrl, 0, hashboard_num)
         print("Temp 0: %.2f C" % temperature)
-        temperature = TMP75.read_temperature(serial_port_ctrl, 1)
+        temperature = TMP75.read_temperature(serial_port_ctrl, 1, hashboard_num)
         print("Temp 1: %.2f C" % temperature)
         time.sleep(1)
 except KeyboardInterrupt:
