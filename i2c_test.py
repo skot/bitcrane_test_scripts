@@ -28,9 +28,9 @@ except serial.SerialException as e:
 try:
     while True:
         print("\nReading board temps...")
-        temperature = TMP75.read_temperature(serial_port_ctrl, 0, hashboard_num)
+        temperature = TMP75.read_temperature(serial_port_ctrl, 0, hashboard_num, True)
         print("Temp 0: %.2f C" % temperature)
-        temperature = TMP75.read_temperature(serial_port_ctrl, 1, hashboard_num)
+        temperature = TMP75.read_temperature(serial_port_ctrl, 1, hashboard_num, True)
         print("Temp 1: %.2f C" % temperature)
         time.sleep(1)
 except KeyboardInterrupt:

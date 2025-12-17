@@ -39,7 +39,7 @@ def read_temperature(ser, chipnum=0, hashboard_num=0, debug=False):
         else:
             address = TMP75_HB2_I2CADDR1
 
-    data = bitcrane.i2c_read_bytes(ser, 0xBB, address, TMP75_TEMP_REG, 2)
+    data = bitcrane.i2c_read_bytes(ser, 0xBB, address, TMP75_TEMP_REG, 2, debug)
 
     # convert data to signed 12 bit integer with struct
     temp = (struct.unpack('>h', data)[0] >> 4) / 16.0
