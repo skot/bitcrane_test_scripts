@@ -74,7 +74,7 @@ def psu_send_bytes(ser, address, register, data_bytes, debug=False):
     Returns True if all bytes sent successfully, False otherwise.
     """
     if debug:
-        print(f"Sending bytes to PSU address 0x{address:02X}, register 0x{register:02X}: [{' '.join(f'{b:02X}' for b in data_bytes)}]")
+        print(f"Sending bytes to PSU: [{' '.join(f'{b:02X}' for b in data_bytes)}]")
     for i, byte in enumerate(data_bytes):
         result = i2c_send_byte(ser, address, register, byte, debug)
         if result is None:
