@@ -1,6 +1,6 @@
 # Bitcrane v3 Test Scripts
 
-A collection of Python test scripts for the Bitcrane v3 Bitcoin mining controller board. These scripts are used to test and interact with Antminer S19j Pro hashboards and associated hardware (fans, PSU, temperature sensors, LEDs).
+A collection of Python test scripts for the [Bitcrane v3](https://github.com/256foundation/emberone-usbserial-fw/tree/bitcrane-v3) Bitcoin mining controller board. These scripts are used with the Bitcrane to test and interact with Antminer S19j Pro hashboards and associated hardware (fans, PSU, temperature sensors, LEDs).
 
 ## Requirements
 
@@ -108,26 +108,6 @@ python psu_test.py
 | HB0 | 0x4C | 0x48 |
 | HB1 | 0x4D | 0x49 |
 | HB2 | 0x4E | 0x4A |
-
-## Protocol Reference
-
-### LED Command
-```
-[09 00 00 00 08 10 RR GG BB]
-```
-Where RR, GG, BB are RGB values (0x00-0xFF)
-
-### Fan Speed Command
-```
-[07 00 ID 00 09 1X SS]
-```
-Where X is fan number (1-4) and SS is speed percent (0-100)
-
-### Fan Tach Read Command
-```
-[06 00 ID 00 09 2X]
-```
-Returns 16-bit RPM value
 
 ## License
 
