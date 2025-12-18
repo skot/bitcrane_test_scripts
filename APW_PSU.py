@@ -128,6 +128,22 @@ def PSU_get_hw_version(ser, debug=False):
     else:
         return None
     
+def PSU_get_fw_version(ser, debug=False):
+    num_read_bytes = 8
+    version_command = [PSU_CMD_GET_FW_VERSION]
+    version_command = make_packet(version_command)
+    print(f"Sending PSU FW version: [{' '.join(f'{b:02X}' for b in version_command)}]")
+    psu_send_bytes(ser, 0x10, 0x11, version_command, debug)
+
+    time.sleep(0.5)
+
+    #read back num_read_bytes bytes
+    data = psu_read_bytes(ser, 0x10, num_read_bytes, debug)
+    if data:
+        print(f"Read PSU FW Version response: [{' '.join(f'{b:02X}' for b in data)}]")
+        return data
+    else:
+        return None
     
 def PSU_config_watchdog(ser, value, debug=False):
     num_read_bytes = 8
@@ -145,11 +161,10 @@ def PSU_config_watchdog(ser, value, debug=False):
         return data
     else:
         return None
-    
-def PSU_set_voltage(ser, voltage, debug=False):
+
+def PSU_set_voltage_raw(ser, hex_voltage, debug=False):
     num_read_bytes = 8
-    hex_voltage = int((voltage - 15.092)/-0.013)
-    print("voltage: %.2f V -> hex: 0x%02X" % (voltage, hex_voltage))
+    print("Setting raw hex voltage: 0x%02X" % hex_voltage)
     set_voltage_command = [PSU_CMD_SET_VOLTAGE, hex_voltage, 0x00]
     set_voltage_command = make_packet(set_voltage_command)
     print(f"Sending PSU set voltage: [{' '.join(f'{b:02X}' for b in set_voltage_command)}]")
@@ -164,6 +179,11 @@ def PSU_set_voltage(ser, voltage, debug=False):
         return data
     else:
         return None
+
+def PSU_set_voltage(ser, voltage, debug=False):
+    num_read_bytes = 8
+    hex_voltage = int((voltage - 15.092)/-0.013)
+    PSU_set_voltage_raw(ser, hex_voltage, debug)
     
 def PSU_get_voltage(ser, debug=False):
     num_read_bytes = 8
@@ -197,7 +217,7 @@ def PSU_measure_voltage(ser, debug=False):
     if data:
         print(f"Read PSU measured voltage response: [{' '.join(f'{b:02X}' for b in data)}]")
         measured_voltage = (data[5] << 8 | data[4])
-        print("Measured Voltage = 0x%04X (%d)" % (measured_voltage, measured_voltage))
+        print("Measured Voltage = 0x%04X (%.2f)" % (measured_voltage, (measured_voltage+0.8615)/63.017))
         return data
     else:
         return None
