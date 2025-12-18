@@ -14,11 +14,9 @@ All scripts communicate via USB serial ports. Update the serial port paths in ea
 ```python
 # macOS example
 port='/dev/tty.usbmodemb310cc521'  # Control serial port
-port='/dev/tty.usbmodemb310cc527'  # ASIC serial port
-
-# Linux example
-port='/dev/ttyUSB0'
-port='/dev/ttyACM0'
+port='/dev/tty.usbmodemb310cc523'  # Hashboard 1 ASIC serial port
+port='/dev/tty.usbmodemb310cc525'  # Hashboard 2 ASIC serial port
+port='/dev/tty.usbmodemb310cc527'  # Hashboard 3 ASIC serial port
 ```
 
 ## Scripts Overview
