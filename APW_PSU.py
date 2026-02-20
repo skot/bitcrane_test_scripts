@@ -1,14 +1,14 @@
 import bitcrane
 import time
 
-PSU_CMD_GET_HW_VERSION = 0x02
 PSU_CMD_GET_FW_VERSION = 0x01
-PSU_CMD_SET_VOLTAGE = 0x83
+PSU_CMD_GET_HW_VERSION = 0x02
 PSU_CMD_GET_VOLTAGE = 0x03
 PSU_CMD_MEASURE_VOLTAGE = 0x04
-PSU_CMD_DISABLE_WDT = 0x81
-PSU_CMD_FEED_WDT = 0x0A
 PSU_CMD_READ_CAL = 0x06
+PSU_CMD_FEED_WDT = 0x0A
+PSU_CMD_SET_VOLTAGE = 0x83
+PSU_CMD_DISABLE_WDT = 0x81
 
 
 #send a single byte to a register over I2C
@@ -105,10 +105,8 @@ def make_packet(bytes_list):
 
 def PSU_set_enable(ser, enable=True, debug=False):
     if enable:
-        print("Enabling PSU...")
         bitcrane.gpio_set(ser, 0xAB, bitcrane.GPIO_PSU_EN, bitcrane.GPIO_LOW, debug)
     else:
-        print("Disabling PSU...")
         bitcrane.gpio_set(ser, 0xAB, bitcrane.GPIO_PSU_EN, bitcrane.GPIO_HIGH, debug)
 
 def PSU_get_hw_version(ser, debug=False):

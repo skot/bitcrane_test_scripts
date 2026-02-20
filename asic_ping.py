@@ -21,10 +21,24 @@ except ValueError:
     print("Error: hashboard_num must be a number")
     exit(1)
 
+# Map hashboard number to serial port
+asic_port_map = {
+    0: '/dev/tty.usbmodemb310cc523',
+    1: '/dev/tty.usbmodemb310cc525',
+    2: '/dev/tty.usbmodemb310cc527'
+}
+
+if hashboard_num not in asic_port_map:
+    print(f"Error: Invalid hashboard number {hashboard_num}. Must be 0, 1, or 2.")
+    exit(1)
+
+asic_port = asic_port_map[hashboard_num]
+print(f"Using ASIC port: {asic_port}")
+
 # Configure the serial ports
 try:
     serial_port_asic = serial.Serial(
-        port='/dev/tty.usbmodemb310cc527',  # Update this to your serial port
+        port=asic_port,
         baudrate=115200,
         timeout=2
     )
