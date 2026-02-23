@@ -31,6 +31,8 @@ FAN3_TACH_CMD = 0x23
 FAN4_SPEED_CMD = 0x14
 FAN4_TACH_CMD = 0x24
 
+PAGE_DISPLAY = 0x0A
+
 
 def prettyHex(data):
     return ' '.join(f'{byte:02X}' for byte in data)
@@ -251,3 +253,38 @@ def reset_asic(ser, hashboard_num, debug=False):
     if debug:
         print("reset_asic tx: [%s]" % prettyHex(command))
     ser.write(command)
+
+
+def display(ser, string, debug=False):
+    id = 0xAB
+    # send a string to the OLED display (max 32 chars)
+    # String is split on the last space: value in large font on top, unit in small font on bottom
+    # If no space, entire string is rendered as single large centered line
+    string = string[:32]  # truncate to 32 chars max
+    data = [ord(c) for c in string]
+
+    # Packet format: [LEN LO, LEN HI, ID, BUS, PAGE, CMD, DATA...]
+    # CMD for display is 0x10 (Set Hashrate)
+    packet_len = len(data) + 6  # 6 header bytes + data
+    packet = bytes([packet_len, 0x00, id, 0x00, PAGE_DISPLAY, 0x10] + data)
+    if debug:
+        print("display tx: [%s]" % prettyHex(packet))
+    ser.write(packet)
+
+    # wait for the response
+    rxdata = ser.read(4)
+    if rxdata:
+        bytes_read = len(rxdata)
+        if bytes_read > 0:
+            if debug:
+                print("ctrl gpio rx: [%s]" % prettyHex(rxdata))
+            if rxdata[2] != id:
+                print("Error: ID mismatch. Expected %02X, got %02X" % (id, rxdata[2]))
+                return
+        else:
+            print("No data received")
+            return
+    else:
+        print("No data received")
+    return
+
