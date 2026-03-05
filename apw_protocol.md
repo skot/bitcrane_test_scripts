@@ -1,33 +1,322 @@
-# Bitmain APW12 PSU Data Protocol
-The Bitmain APW12 Power Supply is controlled and monitored over a data connection. 
-400*Hz** (yes, Hz) I2C connection at 3.3V. Each byte of a packet is a separate I2C transaction.
+# Bitmain APW12 PSU Communication Protocol
 
-**Packet Format**
+The Bitmain APW12 family of power supplies is controlled and monitored over a
+proprietary framed protocol carried over I2C.
 
-| 0      | 1      | 2   | 3   | 4        | 5        | 6      | 7      |
-|--------|--------|-----|-----|----------|----------|--------|--------|
-| PRE LO | PRE HI | LEN | CMD | PARAM LO | PARAM HI | CHK LO | CHK HI |
+---
+
+## Physical Layer
+
+| Parameter | Value |
+|-----------|-------|
+| Bus speed | 400 Hz (not kHz — four hundred Hz) |
+| Logic level | 3.3 V |
+| Addressing | Each byte of a packet is a separate I2C transaction |
+| Direction | Host initiates all transactions; PSU responds |
+
+The extremely low bus speed is intentional: the PSU microcontroller handles each
+byte individually inside its I2C interrupt service routine.
+
+---
+
+## Frame Format
+
+All packets — both host→PSU commands and PSU→host responses — use the same
+layout:
 
 ```
-0. Preamble LSB
-    - Always 0x55
-1. Preamble MSB
-    - Always 0xAA
-2. Length
-	- Including Length & Checksum Bytes, but not preamble.
-3. Command
-    - 0x01: Get PSU FW Version
-    - 0x02: Get PSU HW Version
-    - 0x03: Get PSU Output voltage setting
-    - 0x04: Measure PSU Output voltage
-    - 0x06: Calibration Memory Read
-    - 0x0A: PSU Watchdog
-    - 0x81: Disable PSU watchdog
-    - 0x83: Set PSU output voltage
-4-5. Parameter LSB & MSB
-	- optional command parameter 
-6. Checksum
-	- simple sum of bytes (LEN + CMD + PARAM) & 0xFFFF
+Offset  Bytes  Field
+------  -----  -----
+0       1      Preamble LSB  = 0x55
+1       1      Preamble MSB  = 0xAA
+2       1      Length   (number of bytes from this field through the last
+                        checksum byte, i.e. includes Length itself)
+3       1      Command byte
+4..N    N-3    Payload  (command-specific, 0 or more bytes)
+N+1     1      Checksum (low byte of the arithmetic sum of all bytes
+                        from Length through the last payload byte)
 ```
 
-**Commands**
+### Checksum
+
+```
+checksum = (length + command + sum(payload_bytes)) & 0xFF
+```
+
+A second `0x00` byte is sometimes appended after the checksum; the PSU ignores it.
+
+### NAK
+
+If the PSU rejects a frame (bad command, bad address, etc.) it writes the single
+byte `0xF5` into the I2C buffer instead of a normal response frame.
+
+### Minimum packet (no payload)
+
+```
+55 AA 04 <cmd> <chk> 00
+```
+
+Length = `0x04` (Length + Command + Checksum + 0x00 pad)
+
+### Packet with two payload bytes
+
+```
+55 AA 06 <cmd> <p0> <p1> <chk> 00
+```
+
+Length = `0x06` (Length + Command + 2×Payload + Checksum + 0x00 pad)
+
+---
+
+## Command Summary
+
+| Command | Name | Description |
+|---------|------|-------------|
+| `0x01` | GET_FW_VERSION | Returns 16-byte firmware version string |
+| `0x02` | GET_HW_VERSION | Returns hardware version data |
+| `0x03` | GET_VOLTAGE | Returns current DAC setpoint (1 byte, not a measurement) |
+| `0x04` | MEASURE_VOLTAGE | ADC measurement of actual output; returns 2-byte raw value |
+| `0x05` | READ_POWER | Returns 16-bit live power accumulator |
+| `0x06` | READ_CAL | Reads bytes from calibration EEPROM |
+| `0x81` | WATCHDOG | Heartbeat keep-alive; PSU echoes frame as ACK |
+| `0x83` | SET_VOLTAGE | Writes new DAC code to set output voltage |
+| `0x86` | WRITE_CAL | Writes bytes to calibration EEPROM |
+
+Commands with bit 7 set (≥ `0x80`) use an **echo-as-ACK** pattern: the PSU
+constructs a response frame identical to the command to confirm it was accepted.
+
+---
+
+## Commands
+
+### 0x01 — GET_FW_VERSION
+
+Returns the PSU firmware version string.
+
+**Request:**
+```
+55 AA 04 01 05 00
+```
+
+**Response payload:** 16-byte ASCII firmware version table.
+
+---
+
+### 0x02 — GET_HW_VERSION
+
+Returns the PSU hardware version data.
+
+**Request:**
+```
+55 AA 04 02 06 00
+```
+
+**Response payload:** Hardware version bytes.
+
+---
+
+### 0x03 — GET_VOLTAGE
+
+Returns the current DAC setpoint register as a single byte.
+
+**Request:**
+```
+55 AA 04 03 07 00
+```
+
+**Response:**
+```
+55 AA 06 03 <dac_code> 00 <chk> 00
+```
+
+> **Important:** This returns the *requested* DAC setpoint, not a measured
+> output voltage. Use command `0x04` for an ADC-based measurement.
+
+After a true hardware power-cycle (mains removed), the returned code is the
+factory calibration value loaded from internal non-volatile memory. After any
+`SET_VOLTAGE` (`0x83`) command, it reflects the last programmed setpoint.
+This setpoint **persists across enable/disable cycles** until the hardware is
+fully power-cycled.
+
+---
+
+### 0x04 — MEASURE_VOLTAGE
+
+Triggers an ADC measurement of the actual output voltage and returns the raw
+16-bit result.
+
+**Request:**
+```
+55 AA 04 04 08 00
+```
+
+**Response:**
+```
+55 AA 06 04 <adc_lo> <adc_hi> <chk> 00
+```
+
+**ADC transfer function** (empirically determined):
+
+```
+raw     = adc_lo | (adc_hi << 8)
+voltage = (raw + 0.8615) / 63.017    # volts
+```
+
+Example: raw `0x02F5` (757) → 12.03 V.
+
+Allow 1–3 seconds of settling time after a setpoint change before reading.
+
+---
+
+### 0x05 — READ_POWER
+
+Returns the live 16-bit power accumulator.
+
+**Request:**
+```
+55 AA 04 05 09 00
+```
+
+**Response payload:** 2 bytes, little-endian.
+
+---
+
+### 0x06 — READ_CAL
+
+Reads bytes from the PSU's internal calibration EEPROM.
+
+**Request:**
+```
+55 AA 06 06 <page> <count> <chk> 00
+```
+
+| Argument | Description |
+|----------|-------------|
+| `page`   | Memory page selector. `0x40` is the only confirmed live page (returns a full data frame). Other values (`0x00`, `0x20`, `0x60`) return short frames. |
+| `count`  | Number of EEPROM bytes to return. Maximum 33 (`0x21`) bytes per transaction. |
+
+**Response:**
+```
+55 AA <len> 06 <page_echo> <data...> <chk> 00
+```
+
+> **Note:** The calibration EEPROM on factory-new or untrimmed units is entirely
+> blank (all `0xFF`). Per-unit DAC calibration constants are stored in a
+> separate write-once non-volatile area programmed during factory test and are
+> not accessible via this command.
+
+---
+
+### 0x81 — WATCHDOG
+
+Keep-alive heartbeat. The PSU echoes the full frame back unchanged as implicit ACK.
+
+**Request:**
+```
+55 AA 06 81 00 00 87 00    # disable watchdog
+55 AA 06 81 0E 00 95 00    # enable watchdog
+```
+
+| Payload byte | Meaning |
+|---|---|
+| `0x00` | Disable watchdog — PSU stays on indefinitely |
+| non-zero | Enable watchdog — PSU shuts off if heartbeat stops |
+
+When the watchdog is enabled the host must send this command periodically or
+the PSU will shut itself off as a safety measure. **Always disable the watchdog
+first** when testing or developing host software.
+
+---
+
+### 0x83 — SET_VOLTAGE
+
+Sets the PSU output voltage by programming the internal DAC.
+
+**Request:**
+```
+55 AA 06 83 <dac_code> 00 <chk> 00
+```
+
+**Response (echo-ACK):**
+```
+55 AA 06 83 <dac_code> 00 <chk> 00
+```
+
+The DAC is 8-bit. Valid codes are 0–255. Higher DAC code = lower output voltage.
+
+See [DAC Calibration](#dac-calibration) for the transfer function and constants.
+
+---
+
+### 0x86 — WRITE_CAL
+
+Writes bytes into the calibration EEPROM (inverse of `0x06`). Uses the same
+page/count argument structure.
+
+---
+
+## DAC Calibration
+
+### Transfer function
+
+```python
+dac_code = round((target_voltage - dac_ref) / dac_offset)
+voltage  = dac_ref + dac_offset * dac_code
+```
+
+### Constants (empirical, 8-point sweep 12.0–15.0 V, 2026-03-05)
+
+| Constant | Value |
+|---|---|
+| `dac_ref` | **15.1084 V** |
+| `dac_offset` | **−0.013046 V/count** |
+| R² of linear fit | 0.999999 |
+| Max error across 12–15 V | ≤ 1.1 mV |
+
+### Sweep data
+
+| DAC code | Measured (V) | Fit (V) | Error (mV) |
+|---|---|---|---|
+| 0x08 (8) | 15.003 | 15.004 | −1.0 |
+| 0x2F (47) | 14.496 | 14.495 | +0.8 |
+| 0x48 (72) | 14.170 | 14.169 | +0.9 |
+| 0x55 (85) | 13.999 | 14.000 | −0.5 |
+| 0x7B (123) | 13.503 | 13.504 | −0.7 |
+| 0xA2 (162) | 12.996 | 12.995 | +1.1 |
+| 0xC8 (200) | 12.499 | 12.499 | −0.2 |
+| 0xEE (238) | 12.003 | 12.003 | −0.4 |
+
+The PSU output is highly linear across its full operating range.
+
+### Calibrating a new unit
+
+1. Enable the PSU and disable the watchdog (`0x81` with payload `0x00`).
+2. Read `GET_VOLTAGE` (`0x03`) before issuing any `SET_VOLTAGE` — after a cold
+   power-cycle this returns the factory DAC code, which can bootstrap an
+   initial single-point calibration.
+3. Step through voltages across the operating range (e.g. 12.0–15.0 V in
+   0.5 V increments), measuring actual output with a multimeter at each step.
+4. Record `(dac_code, measured_voltage)` pairs and fit the linear model
+   `V = dac_ref + dac_offset × code` using ordinary least squares.
+   Two points is sufficient; more improves accuracy.
+5. Use the fitted constants for all subsequent `SET_VOLTAGE` calls.
+
+---
+
+## Example Session
+
+Enable PSU, disable watchdog, set 12.5 V, read back setpoint, measure ADC:
+
+```
+→  55 AA 06 81 00 00 87 00      # WATCHDOG: disable
+←  55 AA 06 81 00 00 87 00      # echo = ACK
+
+→  55 AA 06 83 C8 00 51 01      # SET_VOLTAGE: DAC 0xC8 (200) → 12.499 V
+←  55 AA 06 83 C8 00 51 01      # echo = ACK
+
+→  55 AA 04 03 07 00            # GET_VOLTAGE (setpoint readback)
+←  55 AA 06 03 C8 00 D1 00      # DAC code 0xC8 (200) confirmed
+
+→  55 AA 04 04 08 00            # MEASURE_VOLTAGE (ADC)
+←  55 AA 06 04 14 03 21 00      # raw 0x0314 (788) → 12.52 V
+```
