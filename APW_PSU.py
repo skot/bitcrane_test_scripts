@@ -2,8 +2,7 @@ import bitcrane
 import struct
 import time
 
-# Command bytes confirmed by PIC16F1704 firmware disassembly (APW121215a-Good.dis)
-# Dispatch table at label_037 / address 0x03f0:
+# PSU Commands
 PSU_CMD_GET_FW_VERSION  = 0x01  # label_028: returns 16-byte FW version table
 PSU_CMD_GET_HW_VERSION  = 0x02  # label_029: returns HW version data
 PSU_CMD_GET_VOLTAGE     = 0x03  # label_030: returns current DAC setpoint (1 byte)
@@ -12,15 +11,14 @@ PSU_CMD_READ_POWER      = 0x05  # label_032: returns 16-bit live power accumulat
 PSU_CMD_READ_CAL        = 0x06  # label_033: reads EEPROM cal page (sub1=page, sub2=offset)
 PSU_CMD_SET_VOLTAGE     = 0x83  # label_034: writes DAC, echoes new setpoint
 PSU_CMD_WRITE_CAL       = 0x86  # label_035: writes EEPROM cal (inverse of READ_CAL)
-PSU_CMD_WATCHDOG        = 0x81  # fallthrough/echo-ACK: host keep-alive heartbeat
+PSU_CMD_WATCHDOG        = 0x81  # keep-alive heartbeat: 0x00=disable, non-zero=enable (~1 min timeout)
                                  #   payload 0x00 = disable, non-zero = enable
 
 # Legacy aliases kept for backward compatibility
 PSU_CMD_FEED_WDT   = PSU_CMD_WATCHDOG
 PSU_CMD_DISABLE_WDT = PSU_CMD_WATCHDOG
 
-# The bosminer 0x41/0x46 calibration commands are NOT in the PIC dispatch table
-# (they returned NAK 0xF5). The real per-unit calibration constants are stored
+# The real per-unit calibration constants are stored
 # in PROGRAM FLASH at word addresses 0x0FFA (primary) and 0x0FDA (secondary),
 # written once at the factory via ICSP. They are NOT accessible via I2C.
 # The EEPROM (READ_CAL 0x06 / WRITE_CAL 0x86) is a separate data store;
@@ -28,28 +26,6 @@ PSU_CMD_DISABLE_WDT = PSU_CMD_WATCHDOG
 PSU_CAL_PAGE_DEFAULT = 0x40    # only confirmed EEPROM page that returns a data frame
 PSU_CAL_OFFSET_START = 0x00    # start of calibration block within EEPROM page
 
-# Default DAC calibration constants from bosminer binary analysis
-# (IEEE 754 doubles: 0x402e000000000000 = 15.0, 0xbf88181818181818 = -0.012)
-# Voltage formula: hex_dac = round((voltage - DAC_REF) / DAC_OFFSET)
-#                  voltage  = DAC_REF + DAC_OFFSET * hex_dac
-#
-# Per-unit calibration is stored in PROGRAM FLASH (not EEPROM):
-#   Primary location:   word 0x0FFA (byte addr 0x1FF4) — checked first by PIC
-#   Secondary location: word 0x0FDA (byte addr 0x1FB4) — fallback
-#   Format: flash word = 0x35nn where nn is the 8-bit DAC calibration code
-#   Blank flash = 0x3FFF (PIC falls back to label_020 hardcoded defaults)
-#
-# APW121215a GOOD firmware calibration codes (from hex diff):
-#   Primary  0x0FFA: DAC code 0xF8 = 248  →  15.0 − 0.012×248 = 12.024 V (design)
-#   Secondary 0x0FDA: DAC code 0xF7 = 247 →  15.0 − 0.012×247 = 12.036 V (design)
-#
-# BAD firmware (over-voltage/corrupt):
-#   Both locations have non-0x35 opcodes (0x0BCE/0x0BCF); PIC validation fails,
-#   falls back to an out-of-spec setpoint (~12.5 V).
-#
-# The EEPROM (READ_CAL 0x06) on this unit is blank (all 0xFF).
-# Calibration CANNOT be read back via I2C — it must be read via ICSP.
-#
 # Empirically calibrated 2026-03-05 via 8-point sweep (12.0–15.0 V, 0.5 V steps).
 # Linear fit: V = dac_ref + dac_offset * dac_code   R² = 0.999999
 # Max error across sweep range: 1.1 mV.

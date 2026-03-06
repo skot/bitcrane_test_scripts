@@ -62,7 +62,8 @@ else:
     time.sleep(0.5)  # wait for PSU to power up
 
     # Disable watchdog before doing anything else
-    APW_PSU.PSU_config_watchdog(serial_port_ctrl, 0x00, False)
+    APW_PSU.PSU_config_watchdog(serial_port_ctrl, 0x10, False)
+    time.sleep(5)
 
     # -----------------------------------------------------------------------
     # Step 1: Read GET_VOLTAGE *before* any SET_VOLTAGE.

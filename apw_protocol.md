@@ -78,7 +78,7 @@ Length = `0x06` (Length + Command + 2×Payload + Checksum + 0x00 pad)
 | `0x04` | MEASURE_VOLTAGE | ADC measurement of actual output; returns 2-byte raw value |
 | `0x05` | READ_POWER | Returns 16-bit live power accumulator |
 | `0x06` | READ_CAL | Reads bytes from calibration EEPROM |
-| `0x81` | WATCHDOG | Heartbeat keep-alive; PSU echoes frame as ACK |
+| `0x81` | WATCHDOG | Keep-alive heartbeat. `0x00` = disable; non-zero = enable (~1 min timeout). |
 | `0x83` | SET_VOLTAGE | Writes new DAC code to set output voltage |
 | `0x86` | WRITE_CAL | Writes bytes to calibration EEPROM |
 
@@ -209,7 +209,8 @@ Reads bytes from the PSU's internal calibration EEPROM.
 
 ### 0x81 — WATCHDOG
 
-Keep-alive heartbeat. The PSU echoes the full frame back unchanged as implicit ACK.
+Keep-alive heartbeat. The PSU monitors receipt of this command and shuts off
+if it stops arriving.
 
 **Request:**
 ```
@@ -222,9 +223,14 @@ Keep-alive heartbeat. The PSU echoes the full frame back unchanged as implicit A
 | `0x00` | Disable watchdog — PSU stays on indefinitely |
 | non-zero | Enable watchdog — PSU shuts off if heartbeat stops |
 
-When the watchdog is enabled the host must send this command periodically or
-the PSU will shut itself off as a safety measure. **Always disable the watchdog
-first** when testing or developing host software.
+With the watchdog enabled the host must send this command periodically or the
+PSU will shut off. Empirically, payloads `0x01` and `0x02` both produce a
+~1-minute timeout, so **the payload value does not appear to scale the timeout
+period** — it is likely a simple enable flag only. The value `0x0E` is
+commonly used in production software; the resulting timeout is consistent with
+the ~1-minute figure.
+
+**Always disable the watchdog first** when testing or developing host software.
 
 ---
 
