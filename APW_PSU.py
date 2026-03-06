@@ -7,7 +7,7 @@ PSU_CMD_GET_FW_VERSION  = 0x01  # label_028: returns 16-byte FW version table
 PSU_CMD_GET_HW_VERSION  = 0x02  # label_029: returns HW version data
 PSU_CMD_GET_VOLTAGE     = 0x03  # label_030: returns current DAC setpoint (1 byte)
 PSU_CMD_MEASURE_VOLTAGE = 0x04  # label_031: triggers ADC, returns 2-byte result
-PSU_CMD_READ_POWER      = 0x05  # label_032: returns 16-bit live power accumulator
+PSU_CMD_READ_POWER      = 0x05  # label_032: output-enable state readback (0x0001=ON, 0x0000=OFF)
 PSU_CMD_READ_CAL        = 0x06  # label_033: reads EEPROM cal page (sub1=page, sub2=offset)
 PSU_CMD_SET_VOLTAGE     = 0x83  # label_034: writes DAC, echoes new setpoint
 PSU_CMD_WRITE_CAL       = 0x86  # label_035: writes EEPROM cal (inverse of READ_CAL)
@@ -185,6 +185,43 @@ def PSU_config_watchdog(ser, value, debug=False):
         print(f"Read PSU watchdog config response: [{' '.join(f'{b:02X}' for b in data)}]")
         return data
     else:
+        return None
+
+def PSU_read_state(ser, debug=False):
+    """
+    Send command 0x05 and return the PSU output-enable state.
+
+    Firmware analysis: label_032 returns registers 0x0a8/0x0a9 which are
+    set to 0x0001 by function_017 (output ON) and cleared to 0x0000 by
+    function_011 (output OFF). This is NOT a power measurement — it is a
+    boolean on/off state readback.
+
+    Returns the raw 16-bit value (expected: 0x0001=ON or 0x0000=OFF),
+    or None on failure.
+    """
+    cmd = make_packet([PSU_CMD_READ_POWER])
+    print(f"Sending PSU read state (0x05): [{' '.join(f'{b:02X}' for b in cmd)}]")
+    psu_send_bytes(ser, 0x10, 0x11, cmd, debug)
+    time.sleep(0.5)
+
+    frame = _psu_read_frame(ser, debug)
+    if frame is None:
+        print("  PSU_read_state: no valid response")
+        return None
+
+    # Response: 55 AA len 05 <echo> <echo_hi> <state_lo> <state_hi> chk 00
+    # state bytes are at the positions loaded from 0x58/0x59
+    print(f"  Full frame: [{' '.join(f'{b:02X}' for b in frame)}]")
+    if len(frame) >= 6:
+        # frame[3]=cmd_echo, frame[4]=state_lo, frame[5]=state_hi
+        state_lo = frame[4]
+        state_hi = frame[5]
+        state = state_lo | (state_hi << 8)
+        status = "ON" if state else "OFF"
+        print(f"  Output state: 0x{state:04X} ({status})")
+        return state
+    else:
+        print(f"  Unexpected frame length: {len(frame)}")
         return None
 
 def _psu_read_frame(ser, debug=False):

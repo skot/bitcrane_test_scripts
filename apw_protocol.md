@@ -76,7 +76,7 @@ Length = `0x06` (Length + Command + 2×Payload + Checksum + 0x00 pad)
 | `0x02` | GET_HW_VERSION | Returns hardware version data |
 | `0x03` | GET_VOLTAGE | Returns current DAC setpoint (1 byte, not a measurement) |
 | `0x04` | MEASURE_VOLTAGE | ADC measurement of actual output; returns 2-byte raw value |
-| `0x05` | READ_POWER | Returns 16-bit live power accumulator |
+| `0x05` | READ_STATE | Returns PSU output-enable state (1 = ON, 0 = OFF) |
 | `0x06` | READ_CAL | Reads bytes from calibration EEPROM |
 | `0x81` | WATCHDOG | Keep-alive heartbeat. `0x00` = disable; non-zero = enable (~1 min timeout). |
 | `0x83` | SET_VOLTAGE | Writes new DAC code to set output voltage |
@@ -168,16 +168,26 @@ Allow 1–3 seconds of settling time after a setpoint change before reading.
 
 ---
 
-### 0x05 — READ_POWER
+### 0x05 — READ_STATE
 
-Returns the live 16-bit power accumulator.
+Returns the PSU output-enable state
 
 **Request:**
 ```
 55 AA 04 05 09 00
 ```
 
-**Response payload:** 2 bytes, little-endian.
+**Response payload:** 2 bytes, little-endian 16-bit value.
+
+| Value | Meaning |
+|---|---|
+| `0x0001` | Output ON (LATA5 high, PWM active) |
+| `0x0000` | Output OFF (LATA5 low, PWM disabled) |
+
+> **Firmware evidence:** `label_032` returns registers `0x0a8`/`0x0a9`.
+> `function_017` (turn-on) sets them to `0x01`/`0x00` and drives **LATA5**
+> high. `function_011` (turn-off) clears both and drives LATA5 low.
+> No ADC sample, multiplication, or accumulator is involved.
 
 ---
 
@@ -256,8 +266,29 @@ See [DAC Calibration](#dac-calibration) for the transfer function and constants.
 
 ### 0x86 — WRITE_CAL
 
-Writes bytes into the calibration EEPROM (inverse of `0x06`). Uses the same
-page/count argument structure.
+Writes data into the PSU's internal non-volatile calibration storage (the
+inverse of `0x06`). Uses the same page/offset argument structure.
+
+**Request:**
+```
+55 AA 06 86 <page> <data...> <chk> 00
+```
+
+The firmware implements this as a **program flash self-write** on the
+PIC16F1704 microcontroller:
+
+1. Erases the target 32-word flash row.
+2. Copies existing row contents into RAM, merges in the new data.
+3. Writes the full row back using the PIC's write-latch-and-commit sequence.
+
+This is the mechanism Bitmain's factory test fixture uses to program per-unit
+DAC calibration constants over I2C — an alternative to ICSP programming.
+The `0x06` / `0x86` pair provides read/write access to the same calibration
+flash region.
+
+> **Caution:** This command writes to program flash. Incorrect use can corrupt
+> firmware or calibration data. Do not use without understanding the target
+> address and row layout.
 
 ---
 
