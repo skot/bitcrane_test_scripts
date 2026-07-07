@@ -108,5 +108,4 @@ python psu_test.py
 | HB2 | 0x4E | 0x4A |
 
 ## License
-
-Open source hardware project.
+GPLv3
